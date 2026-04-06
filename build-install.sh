@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status
-set -e
-
-APP_NAME="ePubToM4b"
-SCRIPT_NAME="EpubToM4bApp.py"
-
 echo "Preparing environment..."
 brew install tcl-tk
 env \
@@ -18,17 +12,3 @@ env \
   pyenv install 3.13.11
 pyenv virtualenv 3.13.11 3.13.11-epub2audiobk
 pyenv local 3.13.11-epub2audiobk
-
-echo "🧱 Building $APP_NAME..."
-pip install ".[build]"
-
-echo "🧹 Cleaning up previous builds..."
-rm -rf build/ dist/ "$APP_NAME.spec"
-
-echo "📦 Packaging $APP_NAME with PyInstaller..."
-pyinstaller --windowed --noconfirm --add-binary "ffmpeg:." --name "$APP_NAME" "$SCRIPT_NAME"
-
-echo "✅ Build complete!"
-
-# Automatically open the folder containing the finished .app
-open dist/
