@@ -6,6 +6,7 @@ import subprocess
 import os
 import tempfile
 import shutil
+import webbrowser
 from bs4 import BeautifulSoup
 import ebooklib
 from ebooklib import epub
@@ -20,6 +21,12 @@ class EpubToM4bApp:
         self.root.title("EPUB to M4B Converter")
         self.root.geometry("600x250")  # Slightly wider for macOS padding
 
+        # --- FFmpeg Check ---
+        self.ffmpeg_path = self.get_ffmpeg_path()
+        if not self.ffmpeg_path:
+            self.prompt_ffmpeg()
+            return  # Stop initialization if ffmpeg is missing
+
         self.epub_path = tk.StringVar()
         self.output_path = tk.StringVar()
         self.voice = tk.StringVar(value="en-GB-LibbyNeural")
@@ -29,6 +36,39 @@ class EpubToM4bApp:
         self.output_path.trace_add("write", self.update_button_state)
 
         self.setup_ui()
+
+    def get_ffmpeg_path(self):
+        # 1. Check local bundled directory first
+        local_ffmpeg = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "ffmpeg"
+        )
+        if os.path.exists(local_ffmpeg) and os.access(local_ffmpeg, os.X_OK):
+            return local_ffmpeg
+
+        # 2. Check system PATH
+        path_ffmpeg = shutil.which("ffmpeg")
+        if path_ffmpeg:
+            return path_ffmpeg
+
+        # 3. Check common macOS Homebrew paths (GUI apps sometimes lack the terminal PATH)
+        for fallback in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]:
+            if os.path.exists(fallback) and os.access(fallback, os.X_OK):
+                return fallback
+
+        return None
+
+    def prompt_ffmpeg(self):
+        self.root.withdraw()  # Hide the main window
+        msg = (
+            "ffmpeg is required to create M4B files but was not found on your system.\n\n"
+            "Please download it from https://ffmpeg.martin-riedl.de/, install it, "
+            "and ensure it is on your system PATH (or place it next to this app)."
+        )
+        if messagebox.askyesno(
+            "Missing ffmpeg", msg + "\n\nWould you like to open the download page now?"
+        ):
+            webbrowser.open("https://ffmpeg.martin-riedl.de/")
+        self.root.destroy()
 
     def setup_ui(self):
         # --- EPUB Selection ---
@@ -264,9 +304,9 @@ class EpubToM4bApp:
         if os.path.exists(output_file):
             os.remove(output_file)
 
-        ffmpeg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg")
+        # Uses the path dynamically discovered during app init
         cmd = [
-            ffmpeg_path,
+            self.ffmpeg_path,
             "-y",
             "-f",
             "concat",
