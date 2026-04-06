@@ -18,7 +18,7 @@ class EpubToM4bApp:
     def __init__(self, root):
         self.root = root
         self.root.title("EPUB to M4B Converter")
-        self.root.geometry("500x250")
+        self.root.geometry("520x250")  # Slightly wider for macOS padding
 
         self.epub_path = tk.StringVar()
         self.output_path = tk.StringVar()
@@ -27,28 +27,41 @@ class EpubToM4bApp:
         self.setup_ui()
 
     def setup_ui(self):
-        tk.Label(self.root, text="Select EPUB:").grid(
-            row=0, column=0, padx=10, pady=10, sticky="w"
+        # --- EPUB Selection ---
+        tk.Label(self.root, text="EPUB File:").grid(
+            row=0, column=0, padx=10, pady=15, sticky="e"
         )
-        tk.Entry(self.root, textvariable=self.epub_path, width=40).grid(
-            row=0, column=1, padx=10
+
+        # Read-only entry so it displays the path but can't be typed in
+        self.epub_entry = ttk.Entry(
+            self.root, textvariable=self.epub_path, width=38, state="readonly"
         )
-        tk.Button(self.root, text="Browse", command=self.browse_epub).grid(
+        self.epub_entry.grid(row=0, column=1, padx=5)
+        # Bind left-click on the text box to open the dialog
+        self.epub_entry.bind("<Button-1>", lambda e: self.browse_epub())
+
+        tk.Button(self.root, text="Choose...", command=self.browse_epub).grid(
             row=0, column=2, padx=10
         )
 
+        # --- Output Selection ---
         tk.Label(self.root, text="Save M4B As:").grid(
-            row=1, column=0, padx=10, pady=10, sticky="w"
+            row=1, column=0, padx=10, pady=5, sticky="e"
         )
-        tk.Entry(self.root, textvariable=self.output_path, width=40).grid(
-            row=1, column=1, padx=10
+
+        self.out_entry = ttk.Entry(
+            self.root, textvariable=self.output_path, width=38, state="readonly"
         )
-        tk.Button(self.root, text="Browse", command=self.browse_output).grid(
+        self.out_entry.grid(row=1, column=1, padx=5)
+        self.out_entry.bind("<Button-1>", lambda e: self.browse_output())
+
+        tk.Button(self.root, text="Choose...", command=self.browse_output).grid(
             row=1, column=2, padx=10
         )
 
+        # --- Voice Selection ---
         tk.Label(self.root, text="TTS Voice:").grid(
-            row=2, column=0, padx=10, pady=10, sticky="w"
+            row=2, column=0, padx=10, pady=15, sticky="e"
         )
         voices = [
             "en-GB-LibbyNeural",
@@ -57,10 +70,15 @@ class EpubToM4bApp:
             "en-GB-SoniaNeural",
             "en-GB-ThomasNeural",
         ]
-        ttk.Combobox(self.root, textvariable=self.voice, values=voices, width=37).grid(
-            row=2, column=1, padx=10, sticky="w"
-        )
+        ttk.Combobox(
+            self.root,
+            textvariable=self.voice,
+            values=voices,
+            width=36,
+            state="readonly",
+        ).grid(row=2, column=1, padx=5, sticky="w")
 
+        # --- Convert Button & Progress ---
         self.convert_btn = tk.Button(
             self.root,
             text="Convert to M4B",
@@ -68,28 +86,48 @@ class EpubToM4bApp:
             bg="#007AFF",
             fg="white",
         )
-        self.convert_btn.grid(row=3, column=1, pady=20)
+        self.convert_btn.grid(row=3, column=1, pady=15)
 
         self.status_label = tk.Label(self.root, text="Ready", fg="gray")
         self.status_label.grid(row=4, column=0, columnspan=3)
 
     def browse_epub(self):
-        filename = filedialog.askopenfilename(filetypes=[("EPUB Files", "*.epub")])
+        filename = filedialog.askopenfilename(
+            title="Select EPUB Book", filetypes=[("EPUB Files", "*.epub")]
+        )
         if filename:
             self.epub_path.set(filename)
+            # Auto-fill output path so the user doesn't have to click twice unless they want to change it
             out_name = os.path.splitext(filename)[0] + ".m4b"
             self.output_path.set(out_name)
 
     def browse_output(self):
+        # If an epub is already selected, suggest saving in the same directory
+        initial_dir = (
+            os.path.dirname(self.epub_path.get()) if self.epub_path.get() else "/"
+        )
+        initial_file = (
+            os.path.basename(self.output_path.get())
+            if self.output_path.get()
+            else "audiobook.m4b"
+        )
+
         filename = filedialog.asksaveasfilename(
-            defaultextension=".m4b", filetypes=[("Audiobook", "*.m4b")]
+            title="Save Audiobook As",
+            initialdir=initial_dir,
+            initialfile=initial_file,
+            defaultextension=".m4b",
+            filetypes=[("Audiobook", "*.m4b")],
         )
         if filename:
             self.output_path.set(filename)
 
     def start_conversion(self):
         if not self.epub_path.get() or not self.output_path.get():
-            messagebox.showerror("Error", "Please select input and output files.")
+            messagebox.showerror(
+                "Missing Information",
+                "Please select an EPUB file and choose a save location.",
+            )
             return
 
         self.convert_btn.config(state="disabled")
@@ -97,47 +135,34 @@ class EpubToM4bApp:
 
         threading.Thread(target=self.process_book, daemon=True).start()
 
-    # --- NEW PARSING LOGIC INSPIRED BY p0n1/epub_to_audiobook ---
     def parse_chapter_content(self, html_content):
         soup = BeautifulSoup(html_content, "html.parser")
 
-        # 1. Remove unwanted elements that shouldn't be read out loud
         for element in soup(
             ["script", "style", "math", "figure", "nav", "aside", "head", "table"]
         ):
             element.extract()
 
         text_blocks = []
-
-        # 2. Target specific elements to maintain logical reading order and pauses
-        # Headers, paragraphs, lists, and blockquotes naturally separate ideas.
         for element in soup.find_all(
             ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div"]
         ):
             text = element.get_text(separator=" ", strip=True)
-
-            # 3. Clean up the text: remove excess whitespace and empty strings
             text = re.sub(r"\s+", " ", text)
-
-            # Avoid adding empty lines or single weird characters
             if text and len(text) > 1 and text not in text_blocks:
                 text_blocks.append(text)
 
-        # Fallback: if the HTML is weirdly formatted and we missed everything, grab it all safely
         if not text_blocks:
             text = soup.get_text(separator=" ", strip=True)
             text = re.sub(r"\s+", " ", text)
             if text:
                 text_blocks.append(text)
 
-        # Join with a period and two newlines to force the TTS engine to take a breath/pause
         return ".\n\n".join(text_blocks)
 
     def process_book(self):
         temp_dir = tempfile.mkdtemp()
         try:
-            # ebooklib sometimes throws a warning/error on Apple Books CSS files.
-            # We ignore formatting errors by passing ignore_ncx and ignore_css
             book = epub.read_epub(self.epub_path.get(), {"ignore_ncx": True})
 
             title_meta = book.get_metadata("DC", "title")
@@ -147,18 +172,13 @@ class EpubToM4bApp:
             author = author_meta[0][0] if author_meta else "Unknown Author"
 
             chapters = []
-
-            # Iterate through the spine to ensure we get chapters in the exact reading order
             spine_ids = [item[0] for item in book.spine]
 
             for item_id in spine_ids:
                 item = book.get_item_with_id(item_id)
                 if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
                     parsed_text = self.parse_chapter_content(item.get_body_content())
-
-                    # Skip extremely short documents (often blank pages, copyright fluff, or empty titles)
                     if len(parsed_text) > 100:
-                        # Use the file name as a fallback chapter title if none exists
                         chap_title = (
                             item.get_name()
                             .split("/")[-1]
@@ -171,21 +191,19 @@ class EpubToM4bApp:
             if not chapters:
                 raise ValueError("Could not extract any readable text from this EPUB.")
 
-            # Generate Audio
             asyncio.run(self.generate_audio(chapters, temp_dir))
 
-            # Merge to M4B
             self.status_label.config(text="Packaging M4B (This may take a minute)...")
             self.create_m4b(chapters, temp_dir, title, author)
 
             self.status_label.config(text="Success! Audiobook created.", fg="green")
             messagebox.showinfo(
-                "Done", f"Audiobook saved to:\n{self.output_path.get()}"
+                "Done", f"Audiobook successfully saved to:\n{self.output_path.get()}"
             )
 
         except Exception as e:
-            self.status_label.config(text=f"Error: {str(e)}", fg="red")
-            messagebox.showerror("Error", str(e))
+            self.status_label.config(text="Error occurred during conversion.", fg="red")
+            messagebox.showerror("Conversion Error", str(e))
         finally:
             shutil.rmtree(temp_dir)
             self.convert_btn.config(state="normal")
@@ -210,7 +228,6 @@ class EpubToM4bApp:
 
         with open(concat_file, "w") as f:
             for chap in chapters:
-                # Escape single quotes in filenames for FFmpeg
                 safe_path = chap["audio_path"].replace("'", "'\\''")
                 f.write(f"file '{safe_path}'\n")
 
