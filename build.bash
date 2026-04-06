@@ -6,6 +6,9 @@ set -e
 APP_NAME="ePubToM4b"
 SCRIPT_NAME="EpubToM4bApp.py"
 
+echo "🧱 Building $APP_NAME..."
+pip install .
+
 echo "🧹 Cleaning up previous builds..."
 rm -rf build/ dist/ "$APP_NAME.spec"
 
