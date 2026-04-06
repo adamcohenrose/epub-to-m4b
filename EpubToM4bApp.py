@@ -24,43 +24,46 @@ class EpubToM4bApp:
         self.output_path = tk.StringVar()
         self.voice = tk.StringVar(value="en-GB-LibbyNeural")
 
+        # Add traces to monitor when the text variables change
+        self.epub_path.trace_add("write", self.update_button_state)
+        self.output_path.trace_add("write", self.update_button_state)
+
         self.setup_ui()
 
     def setup_ui(self):
         # --- EPUB Selection ---
-        tk.Label(self.root, text="EPUB File:").grid(
+        ttk.Label(self.root, text="EPUB File:").grid(
             row=0, column=0, padx=10, pady=15, sticky="e"
         )
 
-        # Read-only entry so it displays the path but can't be typed in
         self.epub_entry = ttk.Entry(
             self.root, textvariable=self.epub_path, width=38, state="readonly"
         )
-        self.epub_entry.grid(row=0, column=1, padx=5)
-        # Bind left-click on the text box to open the dialog
+        # Added sticky="ew" to make it fill the column neatly
+        self.epub_entry.grid(row=0, column=1, padx=5, sticky="ew")
         self.epub_entry.bind("<Button-1>", lambda e: self.browse_epub())
 
-        tk.Button(self.root, text="Choose...", command=self.browse_epub).grid(
+        ttk.Button(self.root, text="Choose...", command=self.browse_epub).grid(
             row=0, column=2, padx=10
         )
 
         # --- Output Selection ---
-        tk.Label(self.root, text="Save M4B As:").grid(
+        ttk.Label(self.root, text="Save M4B As:").grid(
             row=1, column=0, padx=10, pady=5, sticky="e"
         )
 
         self.out_entry = ttk.Entry(
             self.root, textvariable=self.output_path, width=38, state="readonly"
         )
-        self.out_entry.grid(row=1, column=1, padx=5)
+        self.out_entry.grid(row=1, column=1, padx=5, sticky="ew")
         self.out_entry.bind("<Button-1>", lambda e: self.browse_output())
 
-        tk.Button(self.root, text="Choose...", command=self.browse_output).grid(
+        ttk.Button(self.root, text="Choose...", command=self.browse_output).grid(
             row=1, column=2, padx=10
         )
 
         # --- Voice Selection ---
-        tk.Label(self.root, text="TTS Voice:").grid(
+        ttk.Label(self.root, text="TTS Voice:").grid(
             row=2, column=0, padx=10, pady=15, sticky="e"
         )
         voices = [
@@ -79,17 +82,24 @@ class EpubToM4bApp:
         ).grid(row=2, column=1, padx=5, sticky="w")
 
         # --- Convert Button & Progress ---
-        self.convert_btn = tk.Button(
+        # State initialized to "disabled"
+        self.convert_btn = ttk.Button(
             self.root,
             text="Convert to M4B",
             command=self.start_conversion,
-            bg="#007AFF",
-            fg="white",
+            state="disabled",
         )
         self.convert_btn.grid(row=3, column=1, pady=15)
 
-        self.status_label = tk.Label(self.root, text="Ready", fg="gray")
+        self.status_label = ttk.Label(self.root, text="Ready", foreground="gray")
         self.status_label.grid(row=4, column=0, columnspan=3)
+
+    def update_button_state(self, *args):
+        """Enable the convert button only if both paths are set."""
+        if self.epub_path.get() and self.output_path.get():
+            self.convert_btn.config(state="normal")
+        else:
+            self.convert_btn.config(state="disabled")
 
     def browse_epub(self):
         filename = filedialog.askopenfilename(
@@ -97,12 +107,10 @@ class EpubToM4bApp:
         )
         if filename:
             self.epub_path.set(filename)
-            # Auto-fill output path so the user doesn't have to click twice unless they want to change it
             out_name = os.path.splitext(filename)[0] + ".m4b"
             self.output_path.set(out_name)
 
     def browse_output(self):
-        # If an epub is already selected, suggest saving in the same directory
         initial_dir = (
             os.path.dirname(self.epub_path.get()) if self.epub_path.get() else "/"
         )
@@ -123,6 +131,7 @@ class EpubToM4bApp:
             self.output_path.set(filename)
 
     def start_conversion(self):
+        # We can still keep this safeguard, though the button should prevent it
         if not self.epub_path.get() or not self.output_path.get():
             messagebox.showerror(
                 "Missing Information",
@@ -131,7 +140,7 @@ class EpubToM4bApp:
             return
 
         self.convert_btn.config(state="disabled")
-        self.status_label.config(text="Parsing EPUB...", fg="black")
+        self.status_label.config(text="Parsing EPUB...", foreground="black")
 
         threading.Thread(target=self.process_book, daemon=True).start()
 
@@ -196,17 +205,22 @@ class EpubToM4bApp:
             self.status_label.config(text="Packaging M4B (This may take a minute)...")
             self.create_m4b(chapters, temp_dir, title, author)
 
-            self.status_label.config(text="Success! Audiobook created.", fg="green")
+            self.status_label.config(
+                text="Success! Audiobook created.", foreground="green"
+            )
             messagebox.showinfo(
                 "Done", f"Audiobook successfully saved to:\n{self.output_path.get()}"
             )
 
         except Exception as e:
-            self.status_label.config(text="Error occurred during conversion.", fg="red")
+            self.status_label.config(
+                text="Error occurred during conversion.", foreground="red"
+            )
             messagebox.showerror("Conversion Error", str(e))
         finally:
             shutil.rmtree(temp_dir)
-            self.convert_btn.config(state="normal")
+            # Re-evaluate the button state just in case it needs to stay enabled
+            self.update_button_state()
 
     async def generate_audio(self, chapters, temp_dir):
         for i, chapter in enumerate(chapters):

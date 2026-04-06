@@ -5,6 +5,7 @@ set -e
 
 APP_NAME="ePubToM4b"
 SCRIPT_NAME="EpubToM4bApp.py"
+ICON_NAME="app_icon.icns"
 
 echo "🧱 Building $APP_NAME..."
 pip install ".[build]"
@@ -13,7 +14,7 @@ echo "🧹 Cleaning up previous builds..."
 rm -rf build/ dist/ "$APP_NAME.spec"
 
 echo "📦 Packaging $APP_NAME with PyInstaller..."
-pyinstaller --windowed --noconfirm --add-binary "ffmpeg:." --name "$APP_NAME" "$SCRIPT_NAME"
+pyinstaller --windowed --noconfirm --icon="$ICON_NAME" --name "$APP_NAME" "$SCRIPT_NAME"
 
 echo "✅ Build complete!"
 
