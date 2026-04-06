@@ -8,7 +8,9 @@ SCRIPT_NAME="EpubToM4bApp.py"
 ICON_NAME="app_icon.icns"
 
 echo "🧱 Building $APP_NAME..."
-pip install ".[build]"
+export ARCHFLAGS="-arch x86_64 -arch arm64"
+pip install --upgrade pip
+pip install --no-binary yarl,multidict,frozenlist,propcache,aiohttp ".[build]"
 
 echo "🧹 Cleaning up previous builds..."
 rm -rf build/ dist/ "$APP_NAME.spec"
