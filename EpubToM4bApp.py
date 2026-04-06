@@ -18,7 +18,7 @@ class EpubToM4bApp:
     def __init__(self, root):
         self.root = root
         self.root.title("EPUB to M4B Converter")
-        self.root.geometry("520x250")  # Slightly wider for macOS padding
+        self.root.geometry("600x250")  # Slightly wider for macOS padding
 
         self.epub_path = tk.StringVar()
         self.output_path = tk.StringVar()
