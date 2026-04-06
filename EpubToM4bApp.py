@@ -11,6 +11,7 @@ import ebooklib
 from ebooklib import epub
 import edge_tts
 from mutagen.mp3 import MP3
+import re
 
 
 class EpubToM4bApp:
@@ -21,12 +22,11 @@ class EpubToM4bApp:
 
         self.epub_path = tk.StringVar()
         self.output_path = tk.StringVar()
-        self.voice = tk.StringVar(value="en-US-AriaNeural")  # Default voice
+        self.voice = tk.StringVar(value="en-GB-LibbyNeural")
 
         self.setup_ui()
 
     def setup_ui(self):
-        # EPUB Selection
         tk.Label(self.root, text="Select EPUB:").grid(
             row=0, column=0, padx=10, pady=10, sticky="w"
         )
@@ -37,7 +37,6 @@ class EpubToM4bApp:
             row=0, column=2, padx=10
         )
 
-        # Output Selection
         tk.Label(self.root, text="Save M4B As:").grid(
             row=1, column=0, padx=10, pady=10, sticky="w"
         )
@@ -48,7 +47,6 @@ class EpubToM4bApp:
             row=1, column=2, padx=10
         )
 
-        # Voice Selection
         tk.Label(self.root, text="TTS Voice:").grid(
             row=2, column=0, padx=10, pady=10, sticky="w"
         )
@@ -63,7 +61,6 @@ class EpubToM4bApp:
             row=2, column=1, padx=10, sticky="w"
         )
 
-        # Convert Button & Progress
         self.convert_btn = tk.Button(
             self.root,
             text="Convert to M4B",
@@ -80,7 +77,6 @@ class EpubToM4bApp:
         filename = filedialog.askopenfilename(filetypes=[("EPUB Files", "*.epub")])
         if filename:
             self.epub_path.set(filename)
-            # Auto-fill output path
             out_name = os.path.splitext(filename)[0] + ".m4b"
             self.output_path.set(out_name)
 
@@ -99,31 +95,81 @@ class EpubToM4bApp:
         self.convert_btn.config(state="disabled")
         self.status_label.config(text="Parsing EPUB...", fg="black")
 
-        # Run in background thread to keep UI responsive
         threading.Thread(target=self.process_book, daemon=True).start()
+
+    # --- NEW PARSING LOGIC INSPIRED BY p0n1/epub_to_audiobook ---
+    def parse_chapter_content(self, html_content):
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # 1. Remove unwanted elements that shouldn't be read out loud
+        for element in soup(
+            ["script", "style", "math", "figure", "nav", "aside", "head", "table"]
+        ):
+            element.extract()
+
+        text_blocks = []
+
+        # 2. Target specific elements to maintain logical reading order and pauses
+        # Headers, paragraphs, lists, and blockquotes naturally separate ideas.
+        for element in soup.find_all(
+            ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div"]
+        ):
+            text = element.get_text(separator=" ", strip=True)
+
+            # 3. Clean up the text: remove excess whitespace and empty strings
+            text = re.sub(r"\s+", " ", text)
+
+            # Avoid adding empty lines or single weird characters
+            if text and len(text) > 1 and text not in text_blocks:
+                text_blocks.append(text)
+
+        # Fallback: if the HTML is weirdly formatted and we missed everything, grab it all safely
+        if not text_blocks:
+            text = soup.get_text(separator=" ", strip=True)
+            text = re.sub(r"\s+", " ", text)
+            if text:
+                text_blocks.append(text)
+
+        # Join with a period and two newlines to force the TTS engine to take a breath/pause
+        return ".\n\n".join(text_blocks)
 
     def process_book(self):
         temp_dir = tempfile.mkdtemp()
         try:
-            book = epub.read_epub(self.epub_path.get())
-            title = (
-                book.get_metadata("DC", "title")[0][0]
-                if book.get_metadata("DC", "title")
-                else "Unknown Title"
-            )
-            author = (
-                book.get_metadata("DC", "creator")[0][0]
-                if book.get_metadata("DC", "creator")
-                else "Unknown Author"
-            )
+            # ebooklib sometimes throws a warning/error on Apple Books CSS files.
+            # We ignore formatting errors by passing ignore_ncx and ignore_css
+            book = epub.read_epub(self.epub_path.get(), {"ignore_ncx": True})
+
+            title_meta = book.get_metadata("DC", "title")
+            author_meta = book.get_metadata("DC", "creator")
+
+            title = title_meta[0][0] if title_meta else "Unknown Title"
+            author = author_meta[0][0] if author_meta else "Unknown Author"
 
             chapters = []
-            for item in book.get_items():
-                if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                    soup = BeautifulSoup(item.get_body_content(), "html.parser")
-                    text = soup.get_text(separator=" ", strip=True)
-                    if len(text) > 150:  # Skip empty/meaningless pages
-                        chapters.append({"title": item.get_name(), "text": text})
+
+            # Iterate through the spine to ensure we get chapters in the exact reading order
+            spine_ids = [item[0] for item in book.spine]
+
+            for item_id in spine_ids:
+                item = book.get_item_with_id(item_id)
+                if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
+                    parsed_text = self.parse_chapter_content(item.get_body_content())
+
+                    # Skip extremely short documents (often blank pages, copyright fluff, or empty titles)
+                    if len(parsed_text) > 100:
+                        # Use the file name as a fallback chapter title if none exists
+                        chap_title = (
+                            item.get_name()
+                            .split("/")[-1]
+                            .split(".")[0]
+                            .replace("_", " ")
+                            .title()
+                        )
+                        chapters.append({"title": chap_title, "text": parsed_text})
+
+            if not chapters:
+                raise ValueError("Could not extract any readable text from this EPUB.")
 
             # Generate Audio
             asyncio.run(self.generate_audio(chapters, temp_dir))
@@ -150,11 +196,11 @@ class EpubToM4bApp:
                 text=f"Generating Audio: Chapter {i + 1} of {len(chapters)}"
             )
             audio_path = os.path.join(temp_dir, f"chap_{i:04d}.mp3")
+
             communicate = edge_tts.Communicate(chapter["text"], self.voice.get())
             await communicate.save(audio_path)
             chapter["audio_path"] = audio_path
 
-            # Calculate duration for metadata
             audio = MP3(audio_path)
             chapter["duration_ms"] = int(audio.info.length * 1000)
 
@@ -162,12 +208,12 @@ class EpubToM4bApp:
         concat_file = os.path.join(temp_dir, "concat.txt")
         meta_file = os.path.join(temp_dir, "metadata.txt")
 
-        # 1. Build Concat file for FFmpeg
         with open(concat_file, "w") as f:
             for chap in chapters:
-                f.write(f"file '{chap['audio_path']}'\n")
+                # Escape single quotes in filenames for FFmpeg
+                safe_path = chap["audio_path"].replace("'", "'\\''")
+                f.write(f"file '{safe_path}'\n")
 
-        # 2. Build FFmpeg Metadata file (for Apple Books Chapters)
         with open(meta_file, "w", encoding="utf-8") as f:
             f.write(";FFMETADATA1\n")
             f.write(f"title={title}\n")
@@ -181,9 +227,8 @@ class EpubToM4bApp:
                 f.write(f"START={current_time}\n")
                 current_time += chap["duration_ms"]
                 f.write(f"END={current_time}\n")
-                f.write(f"title=Chapter {i + 1}\n\n")
+                f.write(f"title={chap['title']}\n\n")
 
-        # 3. Run FFmpeg command to compile M4B
         output_file = self.output_path.get()
         if os.path.exists(output_file):
             os.remove(output_file)
@@ -205,12 +250,11 @@ class EpubToM4bApp:
             "-c:a",
             "aac",
             "-b:a",
-            "96k",  # AAC is required for M4B
+            "96k",
             "-vn",
             output_file,
         ]
 
-        # Hide terminal window on macOS during subprocess
         subprocess.run(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
         )
