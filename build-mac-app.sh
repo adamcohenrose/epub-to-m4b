@@ -14,7 +14,7 @@ echo "🧹 Cleaning up previous builds..."
 rm -rf build/ dist/ "$APP_NAME.spec"
 
 echo "📦 Packaging $APP_NAME with PyInstaller..."
-pyinstaller --windowed --noconfirm --icon="$ICON_NAME" --name "$APP_NAME" "$SCRIPT_NAME"
+pyinstaller --windowed --noconfirm --target-architecture universal2 --icon="$ICON_NAME" --name "$APP_NAME" "$SCRIPT_NAME"
 
 echo "✅ Build complete!"
 
