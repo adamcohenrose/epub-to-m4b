@@ -1,4 +1,5 @@
 build/*
 dist/*
 ffmpeg
-ePubToM4b.spec
+*.spec
+*.egg-info
